@@ -1,8 +1,15 @@
 'use strict';
 
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
+
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
 var React = require('react');
+
+var _require = require('react-dom');
+
+var findDOMNode = _require.findDOMNode;
+
 var scrollIntoView = require('dom-scroll-into-view');
 
 var _debugStates = [];
@@ -10,18 +17,22 @@ var _debugStates = [];
 var Autocomplete = React.createClass({
   displayName: 'Autocomplete',
 
+
   propTypes: {
     value: React.PropTypes.any,
     onChange: React.PropTypes.func,
     onSelect: React.PropTypes.func,
     shouldItemRender: React.PropTypes.func,
+    sortItems: React.PropTypes.func,
     getItemValue: React.PropTypes.func.isRequired,
     renderItem: React.PropTypes.func.isRequired,
     renderMenu: React.PropTypes.func,
     menuStyle: React.PropTypes.object,
     inputProps: React.PropTypes.object,
     wrapperProps: React.PropTypes.object,
-    wrapperStyle: React.PropTypes.object
+    wrapperStyle: React.PropTypes.object,
+    debug: React.PropTypes.bool,
+    disableSelectionRange: React.PropTypes.bool
   },
 
   getDefaultProps: function getDefaultProps() {
@@ -31,6 +42,7 @@ var Autocomplete = React.createClass({
       wrapperStyle: {
         display: 'inline-block'
       },
+      disableSelectionRange: false,
       inputProps: {},
       onChange: function onChange() {},
       onSelect: function onSelect(value, item) {},
@@ -40,6 +52,7 @@ var Autocomplete = React.createClass({
       shouldItemRender: function shouldItemRender() {
         return true;
       },
+
       menuStyle: {
         borderRadius: '3px',
         boxShadow: '0 2px 12px rgba(0, 0, 0, 0.1)',
@@ -51,7 +64,6 @@ var Autocomplete = React.createClass({
         maxHeight: '50%' }
     };
   },
-
   // TODO: don't cheat, let it flow to the bottom
   getInitialState: function getInitialState() {
     return {
@@ -59,17 +71,23 @@ var Autocomplete = React.createClass({
       highlightedIndex: null
     };
   },
-
   componentWillMount: function componentWillMount() {
     this._ignoreBlur = false;
     this._performAutoCompleteOnUpdate = false;
     this._performAutoCompleteOnKeyUp = false;
   },
-
-  componentWillReceiveProps: function componentWillReceiveProps() {
+  componentWillReceiveProps: function componentWillReceiveProps(nextProps) {
     this._performAutoCompleteOnUpdate = true;
+    // If `items` has changed we want to reset `highlightedIndex`
+    // since it probably no longer refers to a relevant item
+    if (this.props.items !== nextProps.items ||
+    // The entries in `items` may have been changed even though the
+    // object reference remains the same, double check by seeing
+    // if `highlightedIndex` points to an existing item
+    this.state.highlightedIndex >= nextProps.items.length) {
+      this.setState({ highlightedIndex: null });
+    }
   },
-
   componentDidUpdate: function componentDidUpdate(prevProps, prevState) {
     if (this.state.isOpen === true && prevState.isOpen === false) this.setMenuPositions();
 
@@ -80,29 +98,27 @@ var Autocomplete = React.createClass({
 
     this.maybeScrollItemIntoView();
   },
-
   maybeScrollItemIntoView: function maybeScrollItemIntoView() {
     if (this.state.isOpen === true && this.state.highlightedIndex !== null) {
       var itemNode = this.refs['item-' + this.state.highlightedIndex];
       var menuNode = this.refs.menu;
-      scrollIntoView(itemNode, menuNode, { onlyScrollIfNeeded: true });
+      scrollIntoView(findDOMNode(itemNode), findDOMNode(menuNode), { onlyScrollIfNeeded: true });
     }
   },
-
   handleKeyDown: function handleKeyDown(event) {
     var _this = this;
 
     if (this.keyDownHandlers[event.key]) this.keyDownHandlers[event.key].call(this, event);else {
-      var _ret = (function () {
+      var _ret = function () {
         var _event$target = event.target;
         var selectionStart = _event$target.selectionStart;
         var value = _event$target.value;
 
-        if (value === _this.state.value)
+        if (value === _this.props.value)
           // Nothing changed, no need to do anything. This also prevents
           // our workaround below from nuking user-made selections
           return {
-            v: undefined
+            v: void 0
           };
         _this.setState({
           highlightedIndex: null,
@@ -112,23 +128,22 @@ var Autocomplete = React.createClass({
           // to work around a setSelectionRange bug in IE (#80)
           _this.refs.input.selectionStart = selectionStart;
         });
-      })();
+      }();
 
-      if (typeof _ret === 'object') return _ret.v;
+      if ((typeof _ret === 'undefined' ? 'undefined' : _typeof(_ret)) === "object") return _ret.v;
     }
   },
-
   handleChange: function handleChange(event) {
     this._performAutoCompleteOnKeyUp = true;
     this.props.onChange(event, event.target.value);
   },
-
   handleKeyUp: function handleKeyUp() {
     if (this._performAutoCompleteOnKeyUp) {
       this._performAutoCompleteOnKeyUp = false;
       this.maybeAutoCompleteText();
     }
   },
+
 
   keyDownHandlers: {
     ArrowDown: function ArrowDown(event) {
@@ -144,7 +159,6 @@ var Autocomplete = React.createClass({
         isOpen: true
       });
     },
-
     ArrowUp: function ArrowUp(event) {
       event.preventDefault();
       var itemsLength = this.getFilteredItems().length;
@@ -158,7 +172,6 @@ var Autocomplete = React.createClass({
         isOpen: true
       });
     },
-
     Enter: function Enter(event) {
       var _this2 = this;
 
@@ -182,12 +195,13 @@ var Autocomplete = React.createClass({
           highlightedIndex: null
         }, function () {
           //this.refs.input.focus() // TODO: file issue
-          _this2.refs.input.setSelectionRange(value.length, value.length);
+          if (!_this2.props.disableSelectionRange) {
+            _this2.refs.input.setSelectionRange(value.length, value.length);
+          }
           _this2.props.onSelect(value, item);
         });
       }
     },
-
     Escape: function Escape(event) {
       this.setState({
         highlightedIndex: null,
@@ -215,7 +229,6 @@ var Autocomplete = React.createClass({
 
     return items;
   },
-
   maybeAutoCompleteText: function maybeAutoCompleteText() {
     var _this4 = this;
 
@@ -230,13 +243,15 @@ var Autocomplete = React.createClass({
     if (itemValueDoesMatch) {
       var node = this.refs.input;
       var setSelection = function setSelection() {
+        if (_this4.props.disableSelectionRange) {
+          return;
+        }
         node.value = itemValue;
         node.setSelectionRange(_this4.props.value.length, itemValue.length);
       };
       if (highlightedIndex === null) this.setState({ highlightedIndex: 0 }, setSelection);else setSelection();
     }
   },
-
   setMenuPositions: function setMenuPositions() {
     var node = this.refs.input;
     var rect = node.getBoundingClientRect();
@@ -250,11 +265,9 @@ var Autocomplete = React.createClass({
       menuWidth: rect.width + marginLeft + marginRight
     });
   },
-
   highlightItemFromMouse: function highlightItemFromMouse(index) {
     this.setState({ highlightedIndex: index });
   },
-
   selectItemFromMouse: function selectItemFromMouse(item) {
     var _this5 = this;
 
@@ -268,11 +281,9 @@ var Autocomplete = React.createClass({
       _this5.setIgnoreBlur(false);
     });
   },
-
   setIgnoreBlur: function setIgnoreBlur(ignore) {
     this._ignoreBlur = ignore;
   },
-
   renderMenu: function renderMenu() {
     var _this6 = this;
 
@@ -299,7 +310,6 @@ var Autocomplete = React.createClass({
     var menu = this.props.renderMenu(items, this.props.value, style);
     return React.cloneElement(menu, { ref: 'menu' });
   },
-
   handleInputBlur: function handleInputBlur() {
     if (this._ignoreBlur) return;
     this.setState({
@@ -307,21 +317,24 @@ var Autocomplete = React.createClass({
       highlightedIndex: null
     });
   },
-
   handleInputFocus: function handleInputFocus() {
     if (this._ignoreBlur) return;
+    // We don't want `selectItemFromMouse` to trigger when
+    // the user clicks into the input to focus it, so set this
+    // flag to cancel out the logic in `handleInputClick`.
+    // The event order is:  MouseDown -> Focus -> MouseUp -> Click
+    this._ignoreClick = true;
     this.setState({ isOpen: true });
   },
-
   isInputFocused: function isInputFocused() {
     var el = this.refs.input;
     return el.ownerDocument && el === el.ownerDocument.activeElement;
   },
-
   handleInputClick: function handleInputClick() {
-    if (this.isInputFocused() && this.state.isOpen === false) this.setState({ isOpen: true });else if (this.state.highlightedIndex !== null) this.selectItemFromMouse(this.getFilteredItems()[this.state.highlightedIndex]);
+    // Input will not be focused if it's disabled
+    if (this.isInputFocused() && this.state.isOpen === false) this.setState({ isOpen: true });else if (this.state.highlightedIndex !== null && !this._ignoreClick) this.selectItemFromMouse(this.getFilteredItems()[this.state.highlightedIndex]);
+    this._ignoreClick = false;
   },
-
   render: function render() {
     var _this7 = this;
 
@@ -343,13 +356,13 @@ var Autocomplete = React.createClass({
         ref: 'input',
         onFocus: this.handleInputFocus,
         onBlur: this.handleInputBlur,
-        onChange: function (event) {
+        onChange: function onChange(event) {
           return _this7.handleChange(event);
         },
-        onKeyDown: function (event) {
+        onKeyDown: function onKeyDown(event) {
           return _this7.handleKeyDown(event);
         },
-        onKeyUp: function (event) {
+        onKeyUp: function onKeyUp(event) {
           return _this7.handleKeyUp(event);
         },
         onClick: this.handleInputClick,
